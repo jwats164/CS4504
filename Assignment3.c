@@ -8,11 +8,14 @@ int main(int argc, char** argv) {
     int i, rank, numprocs;
     double x, pi, sum = 0.0, global_sum = 0.0;
     double step = 1.0 / (double)NUMSTEPS;
-
+    
     // Initialize MPI environment
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank); // Get process rank
     MPI_Comm_size(MPI_COMM_WORLD, &numprocs); // Get number of processes
+
+    // Start the timer (using MPI_Wtime)
+    double start_time = MPI_Wtime();
 
     // Calculate the range of steps for each process
     int start = rank * (NUMSTEPS / numprocs);
@@ -30,9 +33,16 @@ int main(int argc, char** argv) {
     // Reduce all partial sums to obtain the final result in rank 0
     MPI_Reduce(&sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
 
-    // Rank 0 prints the result
+    // Stop the timer after computation
+    double end_time = MPI_Wtime();
+
+    // Calculate time in nanoseconds
+    double elapsed_time = (end_time - start_time) * 1e9;
+
+    // Rank 0 prints the result and the time taken
     if (rank == 0) {
         printf("Calculated value of Pi: %.20f\n", global_sum);
+        printf("Execution Time: %.0f nanoseconds\n", elapsed_time);
     }
 
     // Finalize MPI environment
