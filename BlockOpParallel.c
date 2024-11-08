@@ -4,84 +4,56 @@
 #include <stdlib.h>
 
 #define N 2048
+#define BLOCK_SIZE 64 // Adjust block size based on your system's cache size for optimal performance
 #define FactorIntToDouble 1.1
 
 double firstMatrix[N][N] = {0.0};
 double secondMatrix[N][N] = {0.0};
 double matrixMultiResult[N][N] = {0.0};
 
-// Parallel initialization of matrices
+// Function to initialize matrices with random values
 void matrixInit() {
     #pragma omp parallel for collapse(2)
     for (int row = 0; row < N; row++) {
         for (int col = 0; col < N; col++) {
-            unsigned int seed = row + col;
+            unsigned int seed = row + col; // create a unique seed for each element
             firstMatrix[row][col] = (rand_r(&seed) % 10) * FactorIntToDouble;
             secondMatrix[row][col] = (rand_r(&seed) % 10) * FactorIntToDouble;
         }
     }
 }
 
-// Multiplies smaller matrix blocks (used by matrixMulti)
-void smallMatrixMult(int upperOfRow, int bottomOfRow, int leftOfCol, int rightOfCol, int transLeft, int transRight) {
+// Block optimized matrix multiplication using OpenMP
+void matrixMulti() {
     #pragma omp parallel for collapse(2)
-    for (int row = upperOfRow; row <= bottomOfRow; row++) {
-        for (int col = leftOfCol; col <= rightOfCol; col++) {
-            double resultValue = 0.0;
-            for (int transNum = transLeft; transNum <= transRight; transNum++) {
-                resultValue += firstMatrix[row][transNum] * secondMatrix[transNum][col];
-            }
-            matrixMultiResult[row][col] = resultValue;
-        }
-    }
-}
-
-// Divides and conquers for large matrices
-void matrixMulti(int upperOfRow, int bottomOfRow, int leftOfCol, int rightOfCol, int transLeft, int transRight) {
-    if ((bottomOfRow - upperOfRow) < 512) {
-        smallMatrixMult(upperOfRow, bottomOfRow, leftOfCol, rightOfCol, transLeft, transRight);
-    } else {
-        #pragma omp parallel
-        {
-            #pragma omp single nowait
-            {
-                #pragma omp task
-                matrixMulti(upperOfRow, (upperOfRow + bottomOfRow) / 2, leftOfCol, (leftOfCol + rightOfCol) / 2, transLeft, (transLeft + transRight) / 2);
-
-                #pragma omp task
-                matrixMulti(upperOfRow, (upperOfRow + bottomOfRow) / 2, leftOfCol, (leftOfCol + rightOfCol) / 2, (transLeft + transRight) / 2 + 1, transRight);
-
-                #pragma omp task
-                matrixMulti(upperOfRow, (upperOfRow + bottomOfRow) / 2, (leftOfCol + rightOfCol) / 2 + 1, rightOfCol, transLeft, (transLeft + transRight) / 2);
-
-                #pragma omp task
-                matrixMulti(upperOfRow, (upperOfRow + bottomOfRow) / 2, (leftOfCol + rightOfCol) / 2 + 1, rightOfCol, (transLeft + transRight) / 2 + 1, transRight);
-
-                #pragma omp task
-                matrixMulti((upperOfRow + bottomOfRow) / 2 + 1, bottomOfRow, leftOfCol, (leftOfCol + rightOfCol) / 2, transLeft, (transLeft + transRight) / 2);
-
-                #pragma omp task
-                matrixMulti((upperOfRow + bottomOfRow) / 2 + 1, bottomOfRow, leftOfCol, (leftOfCol + rightOfCol) / 2, (transLeft + transRight) / 2 + 1, transRight);
-
-                #pragma omp task
-                matrixMulti((upperOfRow + bottomOfRow) / 2 + 1, bottomOfRow, (leftOfCol + rightOfCol) / 2 + 1, rightOfCol, transLeft, (transLeft + transRight) / 2);
-
-                #pragma omp task
-                matrixMulti((upperOfRow + bottomOfRow) / 2 + 1, bottomOfRow, (leftOfCol + rightOfCol) / 2 + 1, rightOfCol, (transLeft + transRight) / 2 + 1, transRight);
-
-                #pragma omp taskwait
+    for (int i = 0; i < N; i += BLOCK_SIZE) {
+        for (int j = 0; j < N; j += BLOCK_SIZE) {
+            for (int k = 0; k < N; k += BLOCK_SIZE) {
+                // Multiply individual blocks
+                for (int ii = i; ii < i + BLOCK_SIZE && ii < N; ii++) {
+                    for (int jj = j; jj < j + BLOCK_SIZE && jj < N; jj++) {
+                        double sum = 0.0;
+                        for (int kk = k; kk < k + BLOCK_SIZE && kk < N; kk++) {
+                            sum += firstMatrix[ii][kk] * secondMatrix[kk][jj];
+                        }
+                        #pragma omp atomic
+                        matrixMultiResult[ii][jj] += sum;
+                    }
+                }
             }
         }
     }
 }
 
 int main() {
+    // Initialize matrices
     matrixInit();
 
+    // Measure execution time for block optimized parallel multiplication
     double t1 = omp_get_wtime();
-    matrixMulti(0, N - 1, 0, N - 1, 0, N - 1);
+    matrixMulti();
     double t2 = omp_get_wtime();
-    printf("Execution time: %f seconds\n", t2 - t1);
+    printf("Block-optimized parallel execution time: %f seconds\n", t2 - t1);
 
     return 0;
 }
